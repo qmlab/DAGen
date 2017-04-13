@@ -20,8 +20,8 @@ type DatabaseType struct {
 	ConnStr string `json:"ConnectionString"`
 }
 
-func (config *ServiceConfig) LoadConfig(configFile string) {
-	content, e := ioutil.ReadFile(configFile)
+func (config *ServiceConfig) LoadConfig(file string) {
+	content, e := ioutil.ReadFile(file)
 	if e != nil {
 		println("File error:" + e.Error())
 		os.Exit(3)
