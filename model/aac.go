@@ -8,42 +8,103 @@ import (
 	"strconv"
 	"time"
 
+	mgo "gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
+
 	"../common"
 )
 
 // AAC file syntax
 type AAC struct {
-	AdviceFileName      string  `json:"AdviceFileName"`
-	AdviceProvider      string  `json:"AdviceProvider"`
-	Version             uint32  `json:"Version"`
-	AccountActivityType string  `json:"AccountActivityType"`
-	DownloadedTime      string  `json:"DownloadedTime"`
-	ActivityTime        string  `json:"TimeStamp"`
-	MerchantID          string  `json:"MerchantId"`
-	Currency            string  `json:"Currency"`
-	Amount              float32 `json:"Amount"`
-	CorrelationID       string  `json:"CorrelationId"`
-	AdditionalData      string  `json:"AdditionalData"`
-	RecordID            string  `json:"RecordId"`
+	AdviceFileName string  `json:"AdviceFileName"`
+	AdviceProvider string  `json:"AdviceProvider"`
+	Version        uint32  `json:"Version"`
+	ActivityType   string  `json:"AccountActivityType"`
+	DownloadedTime string  `json:"DownloadedTime"`
+	ActivityTime   string  `json:"TimeStamp"`
+	MerchantID     string  `json:"MerchantId"`
+	Currency       string  `json:"Currency"`
+	Amount         float32 `json:"Amount"`
+	CorrelationID  string  `json:"CorrelationId"`
+	AdditionalData string  `json:"AdditionalData"`
+	RecordID       string  `json:"RecordId"`
 }
 
 // AccountActivity data model
 type AccountActivity struct {
-	AdviceFileName      string
-	AdviceProvider      string
-	VersionNumber       uint32
-	AccountActivityType string
-	Time                time.Time
-	MerchantID          string
-	Currency            string
-	Amount              float32
-	DownloadedTime      time.Time
-	LastModifiedTime    time.Time
+	BatchName        string
+	AdviceProvider   string
+	VersionNumber    uint32
+	ActivityType     string
+	Time             time.Time
+	MerchantID       string
+	Currency         string
+	Amount           float32
+	DownloadedTime   time.Time
+	LastModifiedTime time.Time
 }
 
 // AccountActivityBatch - slice of AccountActivity
 type AccountActivityBatch struct {
 	Batch map[uint32]AccountActivity
+}
+
+// AccountActivityOperation - operations for AccountActivity
+type AccountActivityOperation struct {
+}
+
+// GetLastVersion - get last version for the key
+func (op AccountActivityOperation) GetLastVersion(query *mgo.Query) uint32 {
+	var last AccountActivity
+	err := query.One(&last)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return last.VersionNumber
+}
+
+// InsertToStore - insert records to store
+func (batch AccountActivityBatch) InsertToStore(col *mgo.Collection) {
+	for _, v := range batch.Batch {
+		err := col.Insert(&v)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+// GetAndCompareLastBatch - get and compare last batch with current batch
+func (batch *AccountActivityBatch) GetAndCompareLastBatch(batchid string, provider string, version uint32, lastVer uint32, cData *mgo.Collection, cDA *mgo.Collection) {
+	now := time.Now().UTC()
+	var lastRecords []AccountActivity
+	err := cData.Find(bson.M{"batchname": batchid, "adviceprovider": provider, "versionnumber": lastVer}).All(&lastRecords)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, o := range lastRecords {
+		hash := o.GetHashCode()
+		// If record with same key exists
+		if v, ok := batch.Batch[hash]; ok {
+			diff := v.DocAmount() - o.DocAmount()
+			if diff != 0 {
+				v.SetDocAmount(diff)
+				err = cDA.Insert(&v)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+			delete(batch.Batch, hash)
+		} else {
+			// If record has been removed
+			o.SetDocAmount(-o.DocAmount())
+			o.SetProcessingTime(now)
+			err = cDA.Insert(&o)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}
 }
 
 // Count - get length of map
@@ -58,20 +119,36 @@ func NewAccountActivityBatch() *AccountActivityBatch {
 	return &batch
 }
 
+// Clear - reset the buffer
+func (batch *AccountActivityBatch) Clear() {
+	batch.Batch = make(map[uint32]AccountActivity)
+}
+
+// GetKeys - get batchid, provider and version of current batch
+func (batch AccountActivityBatch) GetKeys() (batchid string, provider string, version uint32) {
+	for _, data := range batch.Batch {
+		batchid = data.BatchID()
+		version = data.Version()
+		provider = data.ProviderName()
+		return
+	}
+	return
+}
+
 // GetHashCode - get hash code
 func (act *AccountActivity) GetHashCode() uint32 {
-	time := act.Time.UTC().Unix()
-	s := act.MerchantID + act.AccountActivityType + strconv.FormatInt(time, 10) + act.Currency
+	t := act.Time.UTC().Unix()
+	s := act.MerchantID + act.ActivityType + strconv.FormatInt(t, 10) + act.Currency
 	hash := util.Hash(s)
 	return hash
 }
 
 // LoadData - converts AAC to AccountActivity
 func (act *AccountActivity) LoadData(aac AAC) {
-	act.AdviceFileName = aac.AdviceFileName
+	act.BatchName = aac.AdviceFileName
 	act.AdviceProvider = aac.AdviceProvider
 	act.VersionNumber = aac.Version
-	act.AccountActivityType = aac.AccountActivityType
+	act.ActivityType = aac.ActivityType
 	act.Time = util.ParseTime(aac.ActivityTime)
 	act.MerchantID = aac.MerchantID
 	act.Currency = aac.Currency
@@ -80,9 +157,9 @@ func (act *AccountActivity) LoadData(aac AAC) {
 	act.LastModifiedTime = time.Now().UTC()
 }
 
-// BatchName - get file name or batch name
-func (act AccountActivity) BatchName() string {
-	return act.AdviceFileName
+// BatchID - get file name or batch name
+func (act AccountActivity) BatchID() string {
+	return act.BatchName
 }
 
 // ProviderName - get payment provider name
@@ -108,6 +185,11 @@ func (act AccountActivity) CategoryID() string {
 // DocAmount - amount in document currency
 func (act AccountActivity) DocAmount() float32 {
 	return act.Amount
+}
+
+// SetDocAmount - set amount
+func (act *AccountActivity) SetDocAmount(amount float32) {
+	act.Amount = amount
 }
 
 // LocAmount - amount in local currency
@@ -137,9 +219,9 @@ func (act AccountActivity) GrpCurrency() string {
 	return "USD"
 }
 
-// ActivityType - type of underling activity
-func (act AccountActivity) ActivityType() string {
-	return act.AccountActivityType
+// Type - type of underling activity
+func (act AccountActivity) Type() string {
+	return act.ActivityType
 }
 
 // ProcessingTime - time of processing the activity

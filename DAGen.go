@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"path"
 	"sync"
@@ -40,7 +39,9 @@ func main() {
 	startTime := time.Now()
 	for i := 0; i < config.Routines; i++ {
 		wg.Add(1)
-		go processAAC(files, i, config.Routines, cAcc, cAccDA, config, &wg)
+		batch := model.NewAccountActivityBatch()
+		var op model.AccountActivityOperation
+		go process(files, i, config.Routines, batch, op, cAcc, cAccDA, config, &wg)
 	}
 
 	// Wait till all goroutines are done
@@ -58,98 +59,37 @@ func initDB(config config.ServiceConfig) *mgo.Session {
 	return session
 }
 
-func processAAC(files []os.FileInfo, shard int, routines int, cData *mgo.Collection, cDA *mgo.Collection, config config.ServiceConfig, wg *sync.WaitGroup) {
+func process(files []os.FileInfo, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, cData *mgo.Collection, cDA *mgo.Collection, config config.ServiceConfig, wg *sync.WaitGroup) {
+	batch.Clear()
 	for i := shard; i < len(files); i += routines {
 		file := files[i]
 		println("Shard", shard, "loading", file.Name(), file.ModTime().String())
-		account := model.NewAccountActivityBatch()
-		count := account.LoadDataFile(path.Join(config.IO.InputDIR, file.Name()))
+		count := batch.LoadDataFile(path.Join(config.IO.InputDIR, file.Name()))
 		println("Loaded records:", count)
 
 		// If there is any record
 		if count > 0 {
-			var filename string
-			var version uint32
-			for _, acc := range account.Batch {
-				filename = acc.AdviceFileName
-				version = acc.VersionNumber
-				break
-			}
+			batchname, provider, version := batch.GetKeys()
 
 			// Load existing records
-			// query := cData.Find(bson.M{"advicefilename": filename}).Sort("-versionnumber")
-			query := cData.Find(bson.M{"advicefilename": filename}).Sort("-versionnumber")
+			query := cData.Find(bson.M{"batchname": batchname, "adviceprovider": provider}).Sort("-versionnumber")
 			if n, e := query.Count(); n > 0 && e == nil {
-				var last model.AccountActivity
-				err := query.One(&last)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				lastVer := last.VersionNumber
+				lastVer := op.GetLastVersion(query)
 				if version > lastVer {
 					// Add the current version to data db
-					for _, v := range account.Batch {
-						err = cData.Insert(&v)
-						if err != nil {
-							log.Fatal(err)
-						}
-					}
+					batch.InsertToStore(cData)
 
 					// Load last version
-					var lastRecords []model.AccountActivity
-					now := time.Now().UTC()
-					err = cData.Find(bson.M{"advicefilename": filename, "versionnumber": lastVer}).All(&lastRecords)
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					for _, o := range lastRecords {
-						hash := o.GetHashCode()
-						// If record with same key exists
-						if v, ok := account.Batch[hash]; ok {
-							diff := v.Amount - o.Amount
-							if diff != 0 {
-								v.Amount = diff
-								err = cDA.Insert(&v)
-								if err != nil {
-									log.Fatal(err)
-								}
-							}
-							delete(account.Batch, hash)
-						} else {
-							// If record has been removed
-							o.Amount = -o.Amount
-							o.LastModifiedTime = now
-							err = cDA.Insert(&o)
-							if err != nil {
-								log.Fatal(err)
-							}
-						}
-					}
+					batch.GetAndCompareLastBatch(batchname, provider, version, lastVer, cData, cDA)
 
 					// Put remaining new records to DA
-					for _, v := range account.Batch {
-						err = cDA.Insert(&v)
-						if err != nil {
-							log.Fatal(err)
-						}
-					}
+					batch.InsertToStore(cDA)
 				}
 			} else {
 				// If new file, write to both data and DA stores
-				for _, v := range account.Batch {
-					err := cData.Insert(&v)
-					if err != nil {
-						log.Fatal(err)
-					}
-					err = cDA.Insert(&v)
-					if err != nil {
-						log.Fatal(err)
-					}
-				}
+				batch.InsertToStore(cData)
+				batch.InsertToStore(cDA)
 			}
-
 		}
 	}
 
