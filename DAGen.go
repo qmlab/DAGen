@@ -29,21 +29,30 @@ func main() {
 
 	// Load files from source
 	dir := config.IO.InputDIR
-	aac, _ := removeUnpairedFiles(fs.LoadFilesByTime(dir))
+	aac, sac := removeUnpairedFiles(fs.LoadFilesByTime(dir))
 
 	// Init DB connection
 	session := initDB(config)
 	defer session.Close()
 	cAcc := session.DB("db-data").C("account")
 	cAccDA := session.DB("db-da").C("account")
+	cSub := session.DB("db-data").C("submission")
+	cSubDA := session.DB("db-da").C("submission")
 
 	var wg sync.WaitGroup
 	startTime := time.Now()
 	for i := 0; i < config.Routines; i++ {
 		wg.Add(1)
-		batch := model.NewAccountActivityBatch()
-		var op model.AccountActivityOperation
-		go process(aac, dir, i, config.Routines, batch, op, cAcc, cAccDA, &wg)
+		accBatch := model.NewAccountActivityBatch()
+		var aacOp model.AccountActivityOperation
+		go process(aac, dir, i, config.Routines, accBatch, aacOp, cAcc, cAccDA, &wg)
+	}
+
+	for i := 0; i < config.Routines; i++ {
+		wg.Add(1)
+		subBatch := model.NewSubmissionActivityBatch()
+		var sacOp model.SubmissionActivityOperation
+		go process(sac, dir, i, config.Routines, subBatch, sacOp, cSub, cSubDA, &wg)
 	}
 
 	// Wait till all goroutines are done
