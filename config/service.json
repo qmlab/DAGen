@@ -1,7 +1,7 @@
 {
   "IO":
   {
-    "InputDIR": "E:\\tests\\ProcessedFiles",
+    "InputDIR": "E:\\tests\\ProcessedFilesTest",
     "OutputDIR": "E:\\tests\\DA"
   },
   "Database":

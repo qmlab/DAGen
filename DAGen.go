@@ -33,16 +33,14 @@ func main() {
 	cAcc := session.DB("db-data").C("account")
 	cAccDA := session.DB("db-da").C("account")
 
-	// Load files from source
-	files := fs.LoadFilesByTime(config.IO.InputDIR)
-
 	var wg sync.WaitGroup
 	startTime := time.Now()
+	println((int)(util.Hash("PayPal.20160507140459126.aac")) % config.Routines)
 	for i := 0; i < config.Routines; i++ {
 		wg.Add(1)
 		batch := model.NewAccountActivityBatch()
 		var op model.AccountActivityOperation
-		go process(files, i, config.Routines, batch, op, cAcc, cAccDA, config, &wg)
+		go process(config.IO.InputDIR, i, config.Routines, batch, op, cAcc, cAccDA, &wg)
 	}
 
 	// Wait till all goroutines are done
@@ -60,14 +58,16 @@ func initDB(config config.ServiceConfig) *mgo.Session {
 	return session
 }
 
-func process(files []os.FileInfo, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, cData *mgo.Collection, cDA *mgo.Collection, config config.ServiceConfig, wg *sync.WaitGroup) {
-	for i := shard; i < len(files); i++ {
+func process(dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, cData *mgo.Collection, cDA *mgo.Collection, wg *sync.WaitGroup) {
+	// Load files from source
+	files := fs.LoadFilesByTime(dir)
+	for i := 0; i < len(files); i++ {
 		file := files[i]
 		hash := int(util.Hash(file.Name()))
 		if hash%routines == shard {
 			batch.Clear()
 			println("Shard", shard, "loading", file.Name(), file.ModTime().String())
-			count := batch.LoadDataFile(path.Join(config.IO.InputDIR, file.Name()))
+			count := batch.LoadDataFile(path.Join(dir, file.Name()))
 			println("Shard", shard, "loaded records:", count)
 
 			// If there is any record
