@@ -9,6 +9,7 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
+	"./common"
 	"./config"
 	"./fs"
 	"./model"
@@ -60,35 +61,38 @@ func initDB(config config.ServiceConfig) *mgo.Session {
 }
 
 func process(files []os.FileInfo, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, cData *mgo.Collection, cDA *mgo.Collection, config config.ServiceConfig, wg *sync.WaitGroup) {
-	batch.Clear()
-	for i := shard; i < len(files); i += routines {
+	for i := shard; i < len(files); i++ {
 		file := files[i]
-		println("Shard", shard, "loading", file.Name(), file.ModTime().String())
-		count := batch.LoadDataFile(path.Join(config.IO.InputDIR, file.Name()))
-		println("Loaded records:", count)
+		hash := int(util.Hash(file.Name()))
+		if hash%routines == shard {
+			batch.Clear()
+			println("Shard", shard, "loading", file.Name(), file.ModTime().String())
+			count := batch.LoadDataFile(path.Join(config.IO.InputDIR, file.Name()))
+			println("Shard", shard, "loaded records:", count)
 
-		// If there is any record
-		if count > 0 {
-			batchname, provider, version := batch.GetKeys()
+			// If there is any record
+			if count > 0 {
+				batchname, provider, version := batch.GetKeys()
 
-			// Load existing records
-			query := cData.Find(bson.M{"batchname": batchname, "adviceprovider": provider}).Sort("-versionnumber")
-			if n, e := query.Count(); n > 0 && e == nil {
-				lastVer := op.GetLastVersion(query)
-				if version > lastVer {
-					// Add the current version to data db
+				// Load existing records
+				query := cData.Find(bson.M{"batchname": batchname, "adviceprovider": provider}).Sort("-versionnumber")
+				if n, e := query.Count(); n > 0 && e == nil {
+					lastVer := op.GetLastVersion(query)
+					if version > lastVer {
+						// Add the current version to data db
+						batch.InsertToStore(cData)
+
+						// Load last version
+						batch.GetAndCompareLastBatch(batchname, provider, version, lastVer, cData, cDA)
+
+						// Put remaining new records to DA
+						batch.InsertToStore(cDA)
+					}
+				} else {
+					// If new file, write to both data and DA stores
 					batch.InsertToStore(cData)
-
-					// Load last version
-					batch.GetAndCompareLastBatch(batchname, provider, version, lastVer, cData, cDA)
-
-					// Put remaining new records to DA
 					batch.InsertToStore(cDA)
 				}
-			} else {
-				// If new file, write to both data and DA stores
-				batch.InsertToStore(cData)
-				batch.InsertToStore(cDA)
 			}
 		}
 	}
