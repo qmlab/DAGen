@@ -7,5 +7,6 @@
   "Database":
   {
     "ConnectionString": "localhost:27017"
-  }
+  },
+  "Routines": 5
 }

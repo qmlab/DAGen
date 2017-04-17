@@ -1,1 +1,1 @@
-"Derivitive Activities Generator" 
+"Derivative Activities Generator" 
