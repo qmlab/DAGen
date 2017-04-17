@@ -27,6 +27,10 @@ func main() {
 	var config config.ServiceConfig
 	config.LoadConfig(configFile)
 
+	// Load files from source
+	dir := config.IO.InputDIR
+	aac, _ := removeUnpairedFiles(fs.LoadFilesByTime(dir))
+
 	// Init DB connection
 	session := initDB(config)
 	defer session.Close()
@@ -35,17 +39,48 @@ func main() {
 
 	var wg sync.WaitGroup
 	startTime := time.Now()
-	println((int)(util.Hash("PayPal.20160507140459126.aac")) % config.Routines)
 	for i := 0; i < config.Routines; i++ {
 		wg.Add(1)
 		batch := model.NewAccountActivityBatch()
 		var op model.AccountActivityOperation
-		go process(config.IO.InputDIR, i, config.Routines, batch, op, cAcc, cAccDA, &wg)
+		go process(aac, dir, i, config.Routines, batch, op, cAcc, cAccDA, &wg)
 	}
 
 	// Wait till all goroutines are done
 	wg.Wait()
 	println("Elapsed time:", time.Since(startTime).Seconds())
+}
+
+func removeUnpairedFiles(files []os.FileInfo) (aac []os.FileInfo, sac []os.FileInfo) {
+	counts := make(map[string]int16)
+	for _, file := range files {
+		name := file.Name()
+		key := name[:len(name)-4]
+		if _, ok := counts[key]; ok {
+			counts[key]++
+		} else {
+			counts[key] = 1
+		}
+	}
+
+	for _, file := range files {
+		name := file.Name()
+		key := name[:len(name)-4]
+
+		if v, ok := counts[key]; ok {
+			if v == 2 {
+				ext := name[len(name)-4:]
+				if ext == ".aac" {
+					aac = append(aac, file)
+				}
+				if ext == ".sac" {
+					sac = append(sac, file)
+				}
+			}
+		}
+	}
+
+	return
 }
 
 func initDB(config config.ServiceConfig) *mgo.Session {
@@ -58,9 +93,7 @@ func initDB(config config.ServiceConfig) *mgo.Session {
 	return session
 }
 
-func process(dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, cData *mgo.Collection, cDA *mgo.Collection, wg *sync.WaitGroup) {
-	// Load files from source
-	files := fs.LoadFilesByTime(dir)
+func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, cData *mgo.Collection, cDA *mgo.Collection, wg *sync.WaitGroup) {
 	for i := 0; i < len(files); i++ {
 		file := files[i]
 		hash := int(util.Hash(file.Name()))
