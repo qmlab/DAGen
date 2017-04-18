@@ -38,7 +38,11 @@ func main() {
 	cAccDA := session.DB("db-da").C("account")
 	cSub := session.DB("db-data").C("submission")
 	cSubDA := session.DB("db-da").C("submission")
-	versionTables := getVersions(cAcc, config.Routines)
+	versions := getVersions(cAcc, config.Routines)
+	mutexes := make(map[uint32]*sync.Mutex)
+	for k := range versions {
+		mutexes[k] = &sync.Mutex{}
+	}
 
 	var wg sync.WaitGroup
 	startTime := time.Now()
@@ -46,14 +50,14 @@ func main() {
 		wg.Add(1)
 		accBatch := model.NewAccountActivityBatch()
 		var aacOp model.AccountActivityOperation
-		go process(aac, dir, i, config.Routines, accBatch, aacOp, versionTables[i], cAcc, cAccDA, &wg)
+		go process(aac, dir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, &wg, mutexes)
 	}
 
 	for i := 0; i < config.Routines; i++ {
 		wg.Add(1)
 		subBatch := model.NewSubmissionActivityBatch()
 		var sacOp model.SubmissionActivityOperation
-		go process(sac, dir, i, config.Routines, subBatch, sacOp, versionTables[i], cSub, cSubDA, &wg)
+		go process(sac, dir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, &wg, mutexes)
 	}
 
 	// Wait till all goroutines are done
@@ -110,20 +114,15 @@ type VersionTable struct {
 	Version uint32
 }
 
-func getVersions(col *mgo.Collection, routines int) (versions map[int]map[uint32]uint32) {
-	versions = make(map[int]map[uint32]uint32)
-	for i := 0; i < routines; i++ {
-		versions[i] = make(map[uint32]uint32)
-	}
-
+func getVersions(col *mgo.Collection, routines int) (versions map[uint32]uint32) {
+	versions = make(map[uint32]uint32)
 	stageGroup := bson.M{"$group": bson.M{"_id": bson.M{"batchname": "$batchname", "provider": "$adviceprovider"}, "version": bson.M{"$max": "$versionnumber"}}}
 	pipe := col.Pipe([]bson.M{stageGroup})
 	var vtables []VersionTable
 	pipe.All(&vtables)
 	for _, vtable := range vtables {
 		hash := getEPAKeyHashCode(vtable.Keys["batchname"], vtable.Keys["provider"])
-		shard := int(hash) % routines
-		versions[shard][hash] = vtable.Version
+		versions[hash] = vtable.Version
 	}
 	return
 }
@@ -132,7 +131,7 @@ func getEPAKeyHashCode(filename string, provider string) uint32 {
 	return util.Hash(filename + "|" + provider)
 }
 
-func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, versions map[uint32]uint32, cData *mgo.Collection, cDA *mgo.Collection, wg *sync.WaitGroup) {
+func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, versions map[uint32]uint32, cData *mgo.Collection, cDA *mgo.Collection, wg *sync.WaitGroup, mutexes map[uint32]*sync.Mutex) {
 	for i := 0; i < len(files); i++ {
 		file := files[i]
 		hash := int(util.Hash(file.Name()))
@@ -145,11 +144,15 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 			// If there is any record
 			if count > 0 {
 				batchname, provider, version := batch.GetKeys()
-
 				// Load existing records
 				h := getEPAKeyHashCode(batchname, provider)
+				if _, ok := mutexes[h]; !ok {
+					mutexes[h] = &sync.Mutex{}
+				}
+
+				// Lock on the file+provider
+				mutexes[h].Lock()
 				lastVer, ok := versions[h]
-				println(len(versions))
 				if ok && version > lastVer {
 					// Add the current version to data db
 					batch.InsertToStore(cData)
@@ -159,8 +162,7 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 
 					// Put remaining new records to DA
 					batch.InsertToStore(cDA)
-					// }
-				} else {
+				} else if !ok {
 					// If new file, write to both data and DA stores
 					batch.InsertToStore(cData)
 					batch.InsertToStore(cDA)
@@ -168,6 +170,7 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 
 				// Update the cached max version table for the shard
 				versions[h] = version
+				mutexes[h].Unlock()
 			}
 		}
 	}

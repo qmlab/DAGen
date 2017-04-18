@@ -1,12 +1,12 @@
 {
   "IO":
   {
-    "InputDIR": "E:\\tests\\ProcessedFilesTest",
+    "InputDIR": "E:\\tests\\ProcessedFiles",
     "OutputDIR": "E:\\tests\\DA"
   },
   "Database":
   {
     "ConnectionString": "localhost:27017"
   },
-  "Routines": 20
+  "Routines": 100
 }

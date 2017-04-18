@@ -5,13 +5,15 @@ import (
 	"hash/fnv"
 )
 
-func hash(s string) uint32 {
+func hash(s string, a []int) uint32 {
 	h := fnv.New32a()
 	h.Write([]byte(s))
+	a[0] = 10
 	return h.Sum32()
 }
 
 func main() {
-	fmt.Println(hash("HelloWorld"))
-	fmt.Println(hash("HelloWorld."))
+	var arr = []int{1}
+	fmt.Println(hash("HelloWorld", arr))
+	println(arr[0])
 }
