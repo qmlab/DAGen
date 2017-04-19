@@ -44,11 +44,14 @@ type SubmissionActivity struct {
 	MerchantReferenceNumber string
 	DownloadedTime          time.Time
 	LastModifiedTime        time.Time
+	InternalMRN             string
+	SellerOfRecord          string
+	Partner                 string
 }
 
 // SubmissionActivityBatch - slice of SubmissionActivity
 type SubmissionActivityBatch struct {
-	Batch map[uint32]SubmissionActivity
+	Batch map[uint32]*SubmissionActivity
 }
 
 // SubmissionActivityOperation - operations for SubmissionActivity
@@ -71,6 +74,20 @@ func (batch SubmissionActivityBatch) InsertToStore(col *mgo.Collection) {
 		err := col.Insert(&v)
 		if err != nil {
 			log.Fatal(err)
+		}
+	}
+}
+
+func (batch *SubmissionActivityBatch) LoadAdditionalProperties(col *mgo.Collection) {
+	for _, v := range batch.Batch {
+		mrn := v.MerchantReferenceNumber
+		txtype := v.ActivityType
+		var tx Transaction
+		err := col.Find(bson.M{"mrn": mrn, "adviceprovider": txtype}).One(&tx)
+		if err == nil {
+			v.SellerOfRecord = tx.SOR
+			v.Partner = tx.Partner
+			v.InternalMRN = tx.InternalMRN
 		}
 	}
 }
@@ -117,13 +134,13 @@ func (batch *SubmissionActivityBatch) Count() int {
 // NewSubmissionActivityBatch - constructor
 func NewSubmissionActivityBatch() *SubmissionActivityBatch {
 	var batch SubmissionActivityBatch
-	batch.Batch = make(map[uint32]SubmissionActivity)
+	batch.Batch = make(map[uint32]*SubmissionActivity)
 	return &batch
 }
 
 // Clear - reset the buffer
 func (batch *SubmissionActivityBatch) Clear() {
-	batch.Batch = make(map[uint32]SubmissionActivity)
+	batch.Batch = make(map[uint32]*SubmissionActivity)
 }
 
 // GetKeys - get batchid, provider and version of current batch
@@ -140,7 +157,7 @@ func (batch SubmissionActivityBatch) GetKeys() (batchid string, provider string,
 // GetHashCode - get hash code
 func (act *SubmissionActivity) GetHashCode() uint32 {
 	t := act.Time.UTC().Unix()
-	s := act.MerchantID + act.ActivityType + strconv.FormatInt(t, 10) + act.Currency
+	s := act.MerchantReferenceNumber + "-" + act.MerchantID + "-" + act.ActivityType + "-" + strconv.FormatInt(t, 10) + "-" + act.Currency + "-" + act.InternalMRN + "-" + act.SellerOfRecord + "-" + act.Partner
 	hash := util.Hash(s)
 	return hash
 }
@@ -254,7 +271,7 @@ func (batch *SubmissionActivityBatch) LoadDataFile(filename string) (count int) 
 		activity.LoadData(sac)
 		hash := activity.GetHashCode()
 		if _, ok := batch.Batch[hash]; !ok {
-			batch.Batch[hash] = activity
+			batch.Batch[hash] = &activity
 		}
 	}
 

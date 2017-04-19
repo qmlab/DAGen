@@ -15,7 +15,7 @@ type ServiceConfig struct {
 
 // IOType - IO config
 type IOType struct {
-	EPADIR    string `json:"InputDIR"`
+	EPADIR    string `json:"EPADIR"`
 	TxDIR     string `json:"TxDIR"`
 	OutputDIR string `json:"OutputDIR"`
 }

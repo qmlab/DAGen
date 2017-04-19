@@ -33,6 +33,7 @@ type IActivityBatch interface {
 	Clear()
 	GetKeys() (string, string, uint32)
 	GetAndCompareLastBatch(string, string, uint32, uint32, *mgo.Collection, *mgo.Collection)
+	LoadAdditionalProperties(*mgo.Collection)
 	InsertToStore(*mgo.Collection)
 }
 

@@ -1,10 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"encoding/csv"
-	"io"
-	"log"
 	"os"
 	"path"
 	"sync"
@@ -33,7 +29,7 @@ func main() {
 
 	// Load files from source
 	epaDir := config.IO.EPADIR
-	txDir := config.IO.TxDIR
+	// txDir := config.IO.TxDIR
 
 	// Init DB connection
 	session := initDB(config)
@@ -45,36 +41,34 @@ func main() {
 	cTx := session.DB("db-data").C("transactions")
 	versions := getVersions(cAcc, config.Routines)
 
-	transactions := loadTx(txDir)
-	saveTx(transactions, cTx)
-
 	startTime := time.Now()
 
 	cachedFiles := fs.LoadFilesByTime(epaDir)
 	aac, sac := removeUnpairedFiles(cachedFiles)
 	for {
+		// txErr := model.LoadTxFile(txDir, cTx)
 		var wg sync.WaitGroup
-		for i := 0; i < config.Routines; i++ {
-			wg.Add(1)
-			accBatch := model.NewAccountActivityBatch()
-			var aacOp model.AccountActivityOperation
-			go process(aac, epaDir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, &wg)
-		}
-
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
 			subBatch := model.NewSubmissionActivityBatch()
 			var sacOp model.SubmissionActivityOperation
-			go process(sac, epaDir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, &wg)
+			go process(sac, epaDir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, cTx, &wg)
+		}
+
+		for i := 0; i < config.Routines; i++ {
+			wg.Add(1)
+			accBatch := model.NewAccountActivityBatch()
+			var aacOp model.AccountActivityOperation
+			go process(aac, epaDir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, cTx, &wg)
 		}
 
 		// Wait till all goroutines are done
 		wg.Wait()
 
-		deleteFiles(epaDir, aac)
-		deleteFiles(epaDir, sac)
+		fs.DeleteFiles(epaDir, aac)
+		fs.DeleteFiles(epaDir, sac)
 
-		if len(cachedFiles) > 0 {
+		if len(cachedFiles) > 0 /*|| txErr == nil*/ {
 			println("Elapsed time:", time.Since(startTime).Seconds())
 		}
 
@@ -82,52 +76,6 @@ func main() {
 		time.Sleep(5 * time.Second)
 		cachedFiles = fs.LoadFilesByTime(epaDir)
 		aac, sac = removeUnpairedFiles(cachedFiles)
-	}
-}
-
-func loadTx(dir string) (transactions []interface{}) {
-	filepath := path.Join(dir, "tx.csv")
-	f, e := os.Open(filepath)
-	if e != nil {
-		log.Fatal(e)
-	}
-	reader := bufio.NewReader(f)
-	r := csv.NewReader(reader)
-	for {
-		record, err := r.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		var transaction model.Transaction
-		transaction.LoadData(record)
-		transactions = append(transactions, transaction)
-	}
-	return
-}
-
-func saveTx(transactions []interface{}, col *mgo.Collection) {
-	bulk := col.Bulk()
-	bulk.Unordered()
-	bulk.Insert(transactions...)
-	_, e := bulk.Run()
-	if e != nil {
-		log.Fatal(e)
-	}
-}
-
-func deleteFiles(dir string, files []os.FileInfo) {
-	for _, f := range files {
-		var err = os.Remove(path.Join(dir, f.Name()))
-		if err != nil {
-			println("Failed to delete", f.Name())
-			log.Fatal(err)
-		} else {
-			println("Deleted file", f.Name())
-		}
 	}
 }
 
@@ -187,17 +135,17 @@ func getVersions(col *mgo.Collection, routines int) (versions map[uint32]uint32)
 	var vtables []VersionTable
 	pipe.All(&vtables)
 	for _, vtable := range vtables {
-		hash := getEPAKeyHashCode(vtable.Keys["batchname"], vtable.Keys["provider"])
+		hash := getKeyHashCode(vtable.Keys["batchname"], vtable.Keys["provider"])
 		versions[hash] = vtable.Version
 	}
 	return
 }
 
-func getEPAKeyHashCode(filename string, provider string) uint32 {
+func getKeyHashCode(filename string, provider string) uint32 {
 	return util.Hash(filename + "|" + provider)
 }
 
-func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, versions map[uint32]uint32, cData *mgo.Collection, cDA *mgo.Collection, wg *sync.WaitGroup) {
+func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, versions map[uint32]uint32, cData *mgo.Collection, cDA *mgo.Collection, cTx *mgo.Collection, wg *sync.WaitGroup) {
 	for i := 0; i < len(files); i++ {
 		file := files[i]
 		hash := int(util.Hash(file.Name()))
@@ -212,9 +160,12 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 				batchname, provider, version := batch.GetKeys()
 
 				// Load existing records
-				h := getEPAKeyHashCode(batchname, provider)
+				h := getKeyHashCode(batchname, provider)
 				lastVer, ok := versions[h]
 				if ok && version > lastVer {
+					// Load Additional properties from tx
+					batch.LoadAdditionalProperties(cTx)
+
 					// Add the current version to data db
 					batch.InsertToStore(cData)
 

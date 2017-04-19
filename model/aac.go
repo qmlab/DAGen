@@ -73,6 +73,10 @@ func (batch AccountActivityBatch) InsertToStore(col *mgo.Collection) {
 	}
 }
 
+func (batch *AccountActivityBatch) LoadAdditionalProperties(col *mgo.Collection) {
+	// Place holder
+}
+
 // GetAndCompareLastBatch - get and compare last batch with current batch
 func (batch *AccountActivityBatch) GetAndCompareLastBatch(batchid string, provider string, version uint32, lastVer uint32, cData *mgo.Collection, cDA *mgo.Collection) {
 	now := time.Now().UTC()
@@ -138,7 +142,7 @@ func (batch AccountActivityBatch) GetKeys() (batchid string, provider string, ve
 // GetHashCode - get hash code
 func (act *AccountActivity) GetHashCode() uint32 {
 	t := act.Time.UTC().Unix()
-	s := act.MerchantID + act.ActivityType + strconv.FormatInt(t, 10) + act.Currency
+	s := act.MerchantID + "-" + act.ActivityType + "-" + strconv.FormatInt(t, 10) + "-" + act.Currency
 	hash := util.Hash(s)
 	return hash
 }

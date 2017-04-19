@@ -37,3 +37,39 @@ func Hash(s string) uint32 {
 	h.Write([]byte(s))
 	return h.Sum32()
 }
+
+// TransactionTypeToID - trasaction type to id translation
+func TransactionTypeToID(s string) uint16 {
+	switch s {
+	case "Charge":
+		return uint16(0)
+	case "Refund":
+		return uint16(1)
+	case "Chargeback":
+		return uint16(2)
+	case "ReverseChargeback":
+		return uint16(3)
+	case "Credit":
+		return uint16(4)
+	default:
+		return uint16(99)
+	}
+}
+
+// TransactionTypeIDToStr - transaction type id to string translation
+func TransactionTypeIDToStr(id uint16) string {
+	switch id {
+	case 0:
+		return "Charge"
+	case 1:
+		return "Refund"
+	case 2:
+		return "Chargeback"
+	case 3:
+		return "ReverseChargeback"
+	case 4:
+		return "Credit"
+	default:
+		return "Unknown"
+	}
+}
