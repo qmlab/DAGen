@@ -176,7 +176,7 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 					// Add the current version to data db
 					batch.InsertToStore(cData)
 
-					// Load last version
+					// Load last version, compare and add new DA activities, and remove updates/deletes from remaining batch
 					batch.GetAndCompareLastBatch(batchname, provider, version, lastVer, cData, cDA)
 
 					// Put remaining new records to DA

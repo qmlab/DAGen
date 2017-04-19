@@ -31,7 +31,7 @@ type SAC struct {
 	RecordID                string  `json:"RecordId"`
 }
 
-// SubmssionActivity data model
+// SubmissionActivity data model
 type SubmissionActivity struct {
 	BatchName               string
 	AdviceProvider          string
@@ -114,7 +114,7 @@ func (batch *SubmissionActivityBatch) Count() int {
 	return len(batch.Batch)
 }
 
-// NewAccountActivityBatch - constructor
+// NewSubmissionActivityBatch - constructor
 func NewSubmissionActivityBatch() *SubmissionActivityBatch {
 	var batch SubmissionActivityBatch
 	batch.Batch = make(map[uint32]SubmissionActivity)
@@ -248,8 +248,6 @@ func (batch *SubmissionActivityBatch) LoadDataFile(filename string) (count int) 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		buffer := scanner.Bytes()
-		// line := scanner.Text()
-		// println(string(buffer))
 		var sac SAC
 		json.Unmarshal(buffer, &sac)
 		var activity SubmissionActivity

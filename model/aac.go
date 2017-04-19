@@ -249,8 +249,6 @@ func (batch *AccountActivityBatch) LoadDataFile(filename string) (count int) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		buffer := scanner.Bytes()
-		// line := scanner.Text()
-		// println(string(buffer))
 		var aac AAC
 		json.Unmarshal(buffer, &aac)
 		var activity AccountActivity
