@@ -44,7 +44,7 @@ func main() {
 
 	cachedFiles := fs.LoadFilesByTime(dir)
 	aac, sac := removeUnpairedFiles(cachedFiles)
-	for len(cachedFiles) > 0 {
+	for {
 		var wg sync.WaitGroup
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
@@ -59,19 +59,22 @@ func main() {
 			var sacOp model.SubmissionActivityOperation
 			go process(sac, dir, i, config.Routines, subBatch, sacOp, versionTables[i], cSub, cSubDA, &wg)
 		}
+
+		// Wait till all goroutines are done
 		wg.Wait()
 
 		deleteFiles(dir, aac)
 		deleteFiles(dir, sac)
+
+		if len(cachedFiles) > 0 {
+			println("Elapsed time:", time.Since(startTime).Seconds())
+		}
 
 		// Next round
 		time.Sleep(5 * time.Second)
 		cachedFiles = fs.LoadFilesByTime(dir)
 		aac, sac = removeUnpairedFiles(cachedFiles)
 	}
-
-	// Wait till all goroutines are done
-	println("Elapsed time:", time.Since(startTime).Seconds())
 }
 
 func deleteFiles(dir string, files []os.FileInfo) {
