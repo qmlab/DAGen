@@ -29,7 +29,6 @@ func main() {
 
 	// Load files from source
 	dir := config.IO.InputDIR
-	aac, sac := removeUnpairedFiles(fs.LoadFilesByTime(dir))
 
 	// Init DB connection
 	session := initDB(config)
@@ -40,25 +39,49 @@ func main() {
 	cSubDA := session.DB("db-da").C("submission")
 	versionTables := getVersions(cAcc, config.Routines)
 
-	var wg sync.WaitGroup
 	startTime := time.Now()
-	for i := 0; i < config.Routines; i++ {
-		wg.Add(1)
-		accBatch := model.NewAccountActivityBatch()
-		var aacOp model.AccountActivityOperation
-		go process(aac, dir, i, config.Routines, accBatch, aacOp, versionTables[i], cAcc, cAccDA, &wg)
-	}
 
-	for i := 0; i < config.Routines; i++ {
-		wg.Add(1)
-		subBatch := model.NewSubmissionActivityBatch()
-		var sacOp model.SubmissionActivityOperation
-		go process(sac, dir, i, config.Routines, subBatch, sacOp, versionTables[i], cSub, cSubDA, &wg)
+	cachedFiles := fs.LoadFilesByTime(dir)
+	aac, sac := removeUnpairedFiles(cachedFiles)
+	for len(cachedFiles) > 0 {
+		var wg sync.WaitGroup
+		for i := 0; i < config.Routines; i++ {
+			wg.Add(1)
+			accBatch := model.NewAccountActivityBatch()
+			var aacOp model.AccountActivityOperation
+			go process(aac, dir, i, config.Routines, accBatch, aacOp, versionTables[i], cAcc, cAccDA, &wg)
+		}
+
+		for i := 0; i < config.Routines; i++ {
+			wg.Add(1)
+			subBatch := model.NewSubmissionActivityBatch()
+			var sacOp model.SubmissionActivityOperation
+			go process(sac, dir, i, config.Routines, subBatch, sacOp, versionTables[i], cSub, cSubDA, &wg)
+		}
+		wg.Wait()
+
+		deleteFiles(aac)
+		deleteFiles(sac)
+
+		// Next round
+		time.Sleep(5 * time.Second)
+		cachedFiles = fs.LoadFilesByTime(dir)
+		aac, sac = removeUnpairedFiles(cachedFiles)
 	}
 
 	// Wait till all goroutines are done
-	wg.Wait()
 	println("Elapsed time:", time.Since(startTime).Seconds())
+}
+
+func deleteFiles(files []os.FileInfo) {
+	for _, f := range files {
+		var err = os.Remove(f.Name())
+		if err != nil {
+			println("Failed to delete", f.Name())
+		} else {
+			println("Deleted file", f.Name())
+		}
+	}
 }
 
 func removeUnpairedFiles(files []os.FileInfo) (aac []os.FileInfo, sac []os.FileInfo) {

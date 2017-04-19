@@ -8,5 +8,5 @@
   {
     "ConnectionString": "localhost:27017"
   },
-  "Routines": 20
+  "Routines": 100
 }
