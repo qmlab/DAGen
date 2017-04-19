@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bufio"
+	"encoding/csv"
+	"io"
 	"log"
 	"os"
 	"path"
@@ -29,7 +32,8 @@ func main() {
 	config.LoadConfig(configFile)
 
 	// Load files from source
-	dir := config.IO.InputDIR
+	epaDir := config.IO.EPADIR
+	txDir := config.IO.TxDIR
 
 	// Init DB connection
 	session := initDB(config)
@@ -38,11 +42,15 @@ func main() {
 	cAccDA := session.DB("db-da").C("account")
 	cSub := session.DB("db-data").C("submission")
 	cSubDA := session.DB("db-da").C("submission")
+	cTx := session.DB("db-data").C("transactions")
 	versions := getVersions(cAcc, config.Routines)
+
+	transactions := loadTx(txDir)
+	saveTx(transactions, cTx)
 
 	startTime := time.Now()
 
-	cachedFiles := fs.LoadFilesByTime(dir)
+	cachedFiles := fs.LoadFilesByTime(epaDir)
 	aac, sac := removeUnpairedFiles(cachedFiles)
 	for {
 		var wg sync.WaitGroup
@@ -50,21 +58,21 @@ func main() {
 			wg.Add(1)
 			accBatch := model.NewAccountActivityBatch()
 			var aacOp model.AccountActivityOperation
-			go process(aac, dir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, &wg)
+			go process(aac, epaDir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, &wg)
 		}
 
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
 			subBatch := model.NewSubmissionActivityBatch()
 			var sacOp model.SubmissionActivityOperation
-			go process(sac, dir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, &wg)
+			go process(sac, epaDir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, &wg)
 		}
 
 		// Wait till all goroutines are done
 		wg.Wait()
 
-		deleteFiles(dir, aac)
-		deleteFiles(dir, sac)
+		deleteFiles(epaDir, aac)
+		deleteFiles(epaDir, sac)
 
 		if len(cachedFiles) > 0 {
 			println("Elapsed time:", time.Since(startTime).Seconds())
@@ -72,8 +80,42 @@ func main() {
 
 		// Next round
 		time.Sleep(5 * time.Second)
-		cachedFiles = fs.LoadFilesByTime(dir)
+		cachedFiles = fs.LoadFilesByTime(epaDir)
 		aac, sac = removeUnpairedFiles(cachedFiles)
+	}
+}
+
+func loadTx(dir string) (transactions []interface{}) {
+	filepath := path.Join(dir, "tx.csv")
+	f, e := os.Open(filepath)
+	if e != nil {
+		log.Fatal(e)
+	}
+	reader := bufio.NewReader(f)
+	r := csv.NewReader(reader)
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		var transaction model.Transaction
+		transaction.LoadData(record)
+		transactions = append(transactions, transaction)
+	}
+	return
+}
+
+func saveTx(transactions []interface{}, col *mgo.Collection) {
+	bulk := col.Bulk()
+	bulk.Unordered()
+	bulk.Insert(transactions...)
+	_, e := bulk.Run()
+	if e != nil {
+		log.Fatal(e)
 	}
 }
 

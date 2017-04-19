@@ -1,19 +1,39 @@
 package main
 
 import (
-	"fmt"
-	"hash/fnv"
+	"bufio"
+	"encoding/csv"
+	"io"
+	"log"
+	"os"
+
+	"../model"
 )
 
-func hash(s string, a []int) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(s))
-	a[0] = 10
-	return h.Sum32()
+func main() {
+	file := "e:\\tests\\Tx\\tx.csv"
+	f, err := os.Open(file)
+	check(err)
+	reader := bufio.NewReader(f)
+	r := csv.NewReader(reader)
+	var transactions []model.Transaction
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		var transaction model.Transaction
+		transaction.LoadData(record)
+		transactions = append(transactions, transaction)
+	}
 }
 
-func main() {
-	var arr = []int{1}
-	fmt.Println(hash("HelloWorld", arr))
-	println(arr[0])
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
 }
