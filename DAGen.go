@@ -104,8 +104,8 @@ func removeUnpairedFiles(files []os.FileInfo) (aac []os.FileInfo, sac []os.FileI
 
 		if v, ok := counts[key]; ok {
 			ext := name[len(name)-4:]
-			// It is legal to have aac without sac
-			if v == 2 || ext == ".aac" && file.Size() < 10000 {
+			// It is legal to have aac without sac, but need to revise later. For now, it requires manual intervention
+			if v == 2 /*|| ext == ".aac" && file.Size() < 10000*/ {
 				if ext == ".aac" {
 					aac = append(aac, file)
 				}
