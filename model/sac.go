@@ -83,7 +83,7 @@ func (batch *SubmissionActivityBatch) LoadAdditionalProperties(col *mgo.Collecti
 		mrn := v.MerchantReferenceNumber
 		txtype := v.ActivityType
 		var tx Transaction
-		err := col.Find(bson.M{"mrn": mrn, "adviceprovider": txtype}).One(&tx)
+		err := col.Find(bson.M{"mrn": mrn, "transactiontype": txtype}).One(&tx)
 		if err == nil {
 			v.SellerOfRecord = tx.SOR
 			v.Partner = tx.Partner

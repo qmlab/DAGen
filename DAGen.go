@@ -29,7 +29,7 @@ func main() {
 
 	// Load files from source
 	epaDir := config.IO.EPADIR
-	// txDir := config.IO.TxDIR
+	txDir := config.IO.TxDIR
 
 	// Init DB connection
 	session := initDB(config)
@@ -39,14 +39,15 @@ func main() {
 	cSub := session.DB("db-data").C("submission")
 	cSubDA := session.DB("db-da").C("submission")
 	cTx := session.DB("db-data").C("transactions")
+
+	// Load cache from store
 	versions := getVersions(cAcc, config.Routines)
 
 	startTime := time.Now()
-
 	cachedFiles := fs.LoadFilesByTime(epaDir)
 	aac, sac := removeUnpairedFiles(cachedFiles)
 	for {
-		// txErr := model.LoadTxFile(txDir, cTx)
+		txErr := model.LoadTxFile(txDir, cTx)
 		var wg sync.WaitGroup
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
@@ -68,7 +69,7 @@ func main() {
 		fs.DeleteFiles(epaDir, aac)
 		fs.DeleteFiles(epaDir, sac)
 
-		if len(cachedFiles) > 0 /*|| txErr == nil*/ {
+		if len(cachedFiles) > 0 || txErr == nil {
 			println("Elapsed time:", time.Since(startTime).Seconds())
 		}
 
@@ -176,6 +177,9 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 					batch.InsertToStore(cDA)
 					println("Shard", shard, "has compared and updated from file:[", file.Name(), "] count:", count)
 				} else if !ok {
+					// Load Additional properties from tx
+					batch.LoadAdditionalProperties(cTx)
+
 					// If new file, write to both data and DA stores
 					batch.InsertToStore(cData)
 					batch.InsertToStore(cDA)
