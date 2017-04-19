@@ -38,7 +38,7 @@ func main() {
 	cAccDA := session.DB("db-da").C("account")
 	cSub := session.DB("db-data").C("submission")
 	cSubDA := session.DB("db-da").C("submission")
-	versionTables := getVersions(cAcc, config.Routines)
+	versions := getVersions(cAcc, config.Routines)
 
 	startTime := time.Now()
 
@@ -50,14 +50,14 @@ func main() {
 			wg.Add(1)
 			accBatch := model.NewAccountActivityBatch()
 			var aacOp model.AccountActivityOperation
-			go process(aac, dir, i, config.Routines, accBatch, aacOp, versionTables[i], cAcc, cAccDA, &wg)
+			go process(aac, dir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, &wg)
 		}
 
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
 			subBatch := model.NewSubmissionActivityBatch()
 			var sacOp model.SubmissionActivityOperation
-			go process(sac, dir, i, config.Routines, subBatch, sacOp, versionTables[i], cSub, cSubDA, &wg)
+			go process(sac, dir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, &wg)
 		}
 
 		// Wait till all goroutines are done
@@ -138,20 +138,15 @@ type VersionTable struct {
 	Version uint32
 }
 
-func getVersions(col *mgo.Collection, routines int) (versions map[int]map[uint32]uint32) {
-	versions = make(map[int]map[uint32]uint32)
-	for i := 0; i < routines; i++ {
-		versions[i] = make(map[uint32]uint32)
-	}
-
+func getVersions(col *mgo.Collection, routines int) (versions map[uint32]uint32) {
+	versions = make(map[uint32]uint32)
 	stageGroup := bson.M{"$group": bson.M{"_id": bson.M{"batchname": "$batchname", "provider": "$adviceprovider"}, "version": bson.M{"$max": "$versionnumber"}}}
 	pipe := col.Pipe([]bson.M{stageGroup})
 	var vtables []VersionTable
 	pipe.All(&vtables)
 	for _, vtable := range vtables {
 		hash := getEPAKeyHashCode(vtable.Keys["batchname"], vtable.Keys["provider"])
-		shard := int(hash) % routines
-		versions[shard][hash] = vtable.Version
+		versions[hash] = vtable.Version
 	}
 	return
 }
@@ -177,7 +172,6 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 				// Load existing records
 				h := getEPAKeyHashCode(batchname, provider)
 				lastVer, ok := versions[h]
-				println(len(versions))
 				if ok && version > lastVer {
 					// Add the current version to data db
 					batch.InsertToStore(cData)
@@ -187,8 +181,7 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 
 					// Put remaining new records to DA
 					batch.InsertToStore(cDA)
-					// }
-				} else {
+				} else if !ok {
 					// If new file, write to both data and DA stores
 					batch.InsertToStore(cData)
 					batch.InsertToStore(cDA)

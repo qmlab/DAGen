@@ -2,6 +2,7 @@ package util
 
 import (
 	"hash/fnv"
+	"log"
 	"time"
 )
 
@@ -21,7 +22,11 @@ func ParseTime(str string) time.Time {
 		t, e = time.Parse("2006-01-02T15:04:05", str)
 	}
 	if e != nil {
+		t, e = time.Parse("2006-01-02T15:04:05Z", str)
+	}
+	if e != nil {
 		println("failed to parse time:", str)
+		log.Fatal(e)
 	}
 	return t
 }
