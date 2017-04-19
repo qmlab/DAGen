@@ -149,7 +149,11 @@ func (act *AccountActivity) LoadData(aac AAC) {
 	act.AdviceProvider = aac.AdviceProvider
 	act.VersionNumber = aac.Version
 	act.ActivityType = aac.ActivityType
-	act.Time = util.ParseTime(aac.ActivityTime)
+	if len(aac.ActivityTime) > 0 {
+		act.Time = util.ParseTime(aac.ActivityTime)
+	} else {
+		act.Time = util.ParseTime(aac.DownloadedTime)
+	}
 	act.MerchantID = aac.MerchantID
 	act.Currency = aac.Currency
 	act.Amount = aac.Amount

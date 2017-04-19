@@ -161,9 +161,9 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 		hash := int(util.Hash(file.Name()))
 		if hash%routines == shard {
 			batch.Clear()
-			println("Shard", shard, "loading", file.Name(), file.ModTime().String())
+			println("Shard", shard, "is loading", file.Name(), file.ModTime().String())
 			count := batch.LoadDataFile(path.Join(dir, file.Name()))
-			println("Shard", shard, "loaded records:", count)
+			println("Shard", shard, "has loaded from file:[", file.Name(), "] count:", count)
 
 			// If there is any record
 			if count > 0 {
@@ -181,10 +181,12 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 
 					// Put remaining new records to DA
 					batch.InsertToStore(cDA)
+					println("Shard", shard, "has compared and updated from file:[", file.Name(), "] count:", count)
 				} else if !ok {
 					// If new file, write to both data and DA stores
 					batch.InsertToStore(cData)
 					batch.InsertToStore(cDA)
+					println("Shard", shard, "has inserted new from file:[", file.Name(), "] count:", count)
 				}
 
 				// Update the cached max version table for the shard
