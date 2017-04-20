@@ -1,3 +1,3 @@
 package util
 
-const TxBufferSize uint32 = 1024 * 1024
+const TxBufferSize uint32 = 1024 * 1024 * 4
