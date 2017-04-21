@@ -31,6 +31,13 @@ func ParseTime(str string) time.Time {
 	return t
 }
 
+// GetDate - get the unix date
+func GetDate(time time.Time) uint32 {
+	secs := time.Unix()
+	days := uint32(secs / 86400)
+	return days
+}
+
 // Hash - get hash for string
 func Hash(s string) uint32 {
 	h := fnv.New32a()

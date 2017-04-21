@@ -9,6 +9,7 @@ import (
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
+	"./cache"
 	"./common"
 	"./config"
 	"./fs"
@@ -48,14 +49,16 @@ func main() {
 	}
 
 	startTime := time.Now()
-	cachedFiles := fs.LoadFilesByTime(epaDir)
+	cachedFiles := fs.LoadFilesByName(epaDir)
 	aac, sac := removeUnpairedFiles(cachedFiles)
+	cache := cache.New(util.LRUCacheSize)
 	for {
 		txErr := model.LoadTxFile(txDir, cTx)
 		var wg sync.WaitGroup
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
 			subBatch := model.NewSubmissionActivityBatch()
+			subBatch.Cache = &cache
 			var sacOp model.SubmissionActivityOperation
 			go process(sac, epaDir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, cTx, &wg, mutexes)
 		}
@@ -79,7 +82,7 @@ func main() {
 
 		// Next round
 		time.Sleep(5 * time.Second)
-		cachedFiles = fs.LoadFilesByTime(epaDir)
+		cachedFiles = fs.LoadFilesByName(epaDir)
 		aac, sac = removeUnpairedFiles(cachedFiles)
 	}
 }

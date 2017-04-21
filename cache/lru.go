@@ -30,7 +30,7 @@ func New(capacity int) LRUCache {
 }
 
 // Get - get a value from the cache
-func (cache *LRUCache) Get(key uint32) interface{} {
+func (cache *LRUCache) Get(key uint32) (result interface{}, ok bool) {
 	cache.mutex.RLock()
 	defer cache.mutex.RUnlock()
 	if el, ok := cache.table[key]; ok {
@@ -40,9 +40,12 @@ func (cache *LRUCache) Get(key uint32) interface{} {
 			el2 := cache.items.PushBack(KVP{key: key, value: v})
 			cache.table[key] = el2
 		}
-		return el.Value.(KVP).value
+		result = el.Value.(KVP).value
+		ok = true
+	} else {
+		ok = false
 	}
-	return -1
+	return
 }
 
 // Put - ppsert a value in the cache

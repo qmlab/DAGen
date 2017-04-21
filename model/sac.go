@@ -11,6 +11,7 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
+	"../cache"
 	"../common"
 )
 
@@ -52,6 +53,7 @@ type SubmissionActivity struct {
 // SubmissionActivityBatch - slice of SubmissionActivity
 type SubmissionActivityBatch struct {
 	Batch map[uint32]*SubmissionActivity
+	Cache *cache.LRUCache
 }
 
 // SubmissionActivityOperation - operations for SubmissionActivity
@@ -81,12 +83,23 @@ func (batch SubmissionActivityBatch) InsertToStore(col *mgo.Collection) {
 // LoadAdditionalProperties - load tx properties to submission activities
 // CPU/Disk intensive job!
 func (batch *SubmissionActivityBatch) LoadAdditionalProperties(col *mgo.Collection) {
+	lastDate := uint32(0)
+	var hashmap map[uint32]Transaction
 	for _, v := range batch.Batch {
 		mrn := v.MerchantReferenceNumber
 		txtype := v.ActivityType
-		var tx Transaction
-		err := col.Find(bson.M{"mrn": mrn, "transactiontype": txtype}).One(&tx)
-		if err == nil {
+		time := v.Time
+		date := util.GetDate(time)
+		if date != lastDate {
+			if r, ok := batch.Cache.Get(date); !ok {
+				hashmap = ReadTxFromStore(date, col)
+				batch.Cache.Put(date, hashmap)
+			} else {
+				hashmap = r.(map[uint32]Transaction)
+			}
+		}
+		hash := GetTxHashCode(mrn, txtype)
+		if tx, ok := hashmap[hash]; ok {
 			v.SellerOfRecord = tx.SOR
 			v.Partner = tx.Partner
 			v.InternalMRN = tx.InternalMRN

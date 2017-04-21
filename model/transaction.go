@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	mgo "gopkg.in/mgo.v2"
+	"gopkg.in/mgo.v2/bson"
 
 	"../common"
 	"../fs"
@@ -117,4 +118,23 @@ func (t *Transaction) LoadData(record []string) {
 			log.Fatal(e)
 		}
 	}
+}
+
+// GetTxHashCode - get transaction hash
+func GetTxHashCode(mrn string, transactiontype string) uint32 {
+	s := mrn + "-" + transactiontype
+	hash := util.Hash(s)
+	return hash
+}
+
+// ReadTxFromStore - Load transactions of the same date to a hash map using mrn and tx type as combined key
+func ReadTxFromStore(date uint32, col *mgo.Collection) map[uint32]Transaction {
+	var transactions []Transaction
+	col.Find(bson.M{"date": date}).All(&transactions)
+	hashmap := make(map[uint32]Transaction)
+	for _, tx := range transactions {
+		hash := GetTxHashCode(tx.MRN, tx.TransactionType)
+		hashmap[hash] = tx
+	}
+	return hashmap
 }
