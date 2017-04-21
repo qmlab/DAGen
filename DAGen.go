@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2"
+	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 
 	"./common"
@@ -42,6 +42,10 @@ func main() {
 
 	// Load cache from store
 	versions := getVersions(cAcc, config.Routines)
+	mutexes := make(map[uint32]*sync.Mutex)
+	for k := range versions {
+		mutexes[k] = &sync.Mutex{}
+	}
 
 	startTime := time.Now()
 	cachedFiles := fs.LoadFilesByTime(epaDir)
@@ -53,14 +57,14 @@ func main() {
 			wg.Add(1)
 			subBatch := model.NewSubmissionActivityBatch()
 			var sacOp model.SubmissionActivityOperation
-			go process(sac, epaDir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, cTx, &wg)
+			go process(sac, epaDir, i, config.Routines, subBatch, sacOp, versions, cSub, cSubDA, cTx, &wg, mutexes)
 		}
 
 		for i := 0; i < config.Routines; i++ {
 			wg.Add(1)
 			accBatch := model.NewAccountActivityBatch()
 			var aacOp model.AccountActivityOperation
-			go process(aac, epaDir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, cTx, &wg)
+			go process(aac, epaDir, i, config.Routines, accBatch, aacOp, versions, cAcc, cAccDA, cTx, &wg, mutexes)
 		}
 
 		// Wait till all goroutines are done
@@ -146,7 +150,7 @@ func getKeyHashCode(filename string, provider string) uint32 {
 	return util.Hash(filename + "|" + provider)
 }
 
-func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, versions map[uint32]uint32, cData *mgo.Collection, cDA *mgo.Collection, cTx *mgo.Collection, wg *sync.WaitGroup) {
+func process(files []os.FileInfo, dir string, shard int, routines int, batch model.IActivityBatch, op model.IActivityOperation, versions map[uint32]uint32, cData *mgo.Collection, cDA *mgo.Collection, cTx *mgo.Collection, wg *sync.WaitGroup, mutexes map[uint32]*sync.Mutex) {
 	for i := 0; i < len(files); i++ {
 		file := files[i]
 		hash := int(util.Hash(file.Name()))
@@ -162,6 +166,12 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 
 				// Load existing records
 				h := getKeyHashCode(batchname, provider)
+				if _, ok := mutexes[h]; !ok {
+					mutexes[h] = &sync.Mutex{}
+				}
+
+				// Lock on the file+provider level
+				mutexes[h].Lock()
 				lastVer, ok := versions[h]
 				if ok && version > lastVer {
 					// Load Additional properties from tx
@@ -188,6 +198,7 @@ func process(files []os.FileInfo, dir string, shard int, routines int, batch mod
 
 				// Update the cached max version table for the shard
 				versions[h] = version
+				mutexes[h].Unlock()
 			}
 		}
 	}
