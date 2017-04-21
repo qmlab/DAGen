@@ -78,6 +78,8 @@ func (batch SubmissionActivityBatch) InsertToStore(col *mgo.Collection) {
 	}
 }
 
+// LoadAdditionalProperties - load tx properties to submission activities
+// CPU/Disk intensive job!
 func (batch *SubmissionActivityBatch) LoadAdditionalProperties(col *mgo.Collection) {
 	for _, v := range batch.Batch {
 		mrn := v.MerchantReferenceNumber
