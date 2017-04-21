@@ -38,7 +38,7 @@ func main() {
 	cAccDA := session.DB("db-da").C("account")
 	cSub := session.DB("db-data").C("submission")
 	cSubDA := session.DB("db-da").C("submission")
-	cTx := session.DB("db-data").C("transactions")
+	cTx := session.DB("db-data").C("transaction")
 
 	// Load cache from store
 	versions := getVersions(cAcc, config.Routines)

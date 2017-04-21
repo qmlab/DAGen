@@ -22,20 +22,27 @@ type Transaction struct {
 	InternalMRN     string
 	SOR             string
 	Partner         string
+	Date            uint32
 }
 
-func LoadTxFile(txDir string, cTx *mgo.Collection) error {
+// LoadTxFile - load, process and delete files
+func LoadTxFile(txDir string, cTx *mgo.Collection) (e error) {
 	// Load transactions
-	txfile := path.Join(txDir, "tx.csv")
-	_, txErr := os.Stat(txfile)
-	if txErr == nil {
-		println("Loading Tx...")
-		transactions := loadTx(txfile, cTx)
-		println("Loaded", transactions, "transactions.")
-		fs.DeleteFilesWithSuffix(txDir, "tx.csv")
-		println("Deleted tx.csv")
+	files := fs.LoadFilesByTime(txDir)
+	for _, file := range files {
+		txfile := path.Join(txDir, file.Name())
+		_, txErr := os.Stat(txfile)
+		if txErr == nil {
+			println("Loading Tx from", file.Name())
+			transactions := loadTx(txfile, cTx)
+			println("Loaded", transactions, "transactions.")
+			fs.DeleteFilesWithSuffix(txDir, file.Name())
+			println("Deleted tx.csv")
+		} else {
+			e = txErr
+		}
 	}
-	return txErr
+	return
 }
 
 func loadTx(filepath string, col *mgo.Collection) (total int) {
@@ -46,14 +53,13 @@ func loadTx(filepath string, col *mgo.Collection) (total int) {
 	reader := bufio.NewReader(f)
 	r := csv.NewReader(reader)
 	total = 0
-	var i uint32 = 0
+	var i uint32
 	transactions := make([]interface{}, util.TxBufferSize)
 	for {
 		record, err := r.Read()
 		if err == io.EOF {
 			if i > 0 {
 				saveTx(transactions[:i], col)
-				i = 0
 			}
 			break
 		}
@@ -104,5 +110,11 @@ func (t *Transaction) LoadData(record []string) {
 		}
 		t.SOR = record[3]
 		t.Partner = record[4]
+		var d uint64
+		d, e = strconv.ParseUint(record[5], 10, 32)
+		t.Date = uint32(d)
+		if e != nil {
+			log.Fatal(e)
+		}
 	}
 }
